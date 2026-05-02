@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sales History — PharmaPos</title>
+  <link rel="stylesheet" href="shared.css"/>
+  <style>
+    .inv-detail { font-size:12px; color:var(--text-muted); margin-top:2px; line-height:1.5; }
+    .summary-strip {
+      display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:20px;
+    }
+    .sum-card {
+      background:var(--card-bg); border:1px solid var(--border);
+      border-radius:var(--radius-sm); padding:16px 20px;
+      display:flex; align-items:center; gap:14px;
+    }
+    .sum-icon { font-size:24px; }
+    .sum-val { font-family:'Syne',sans-serif; font-size:20px; font-weight:800; }
+    .sum-label { font-size:12px; color:var(--text-secondary); }
+    .view-inv-btn {
+      background:none; border:1px solid var(--border); border-radius:6px;
+      padding:5px 10px; font-size:11px; cursor:pointer; color:var(--text-secondary);
+      transition:all 0.12s; font-family:'DM Sans',sans-serif;
+    }
+    .view-inv-btn:hover { border-color:var(--accent2); color:var(--accent2); }
+    .invoice-modal-content { max-height:380px; overflow-y:auto; }
+  </style>
+</head>
+<body>
+<script src="shared.js"></script>
+<script src="sidebar.js"></script>
+<script>document.addEventListener('DOMContentLoaded', renderSidebar);</script>
+
+<div class="main">
+  <header class="topbar">
+    <div class="topbar-title">Sales History</div>
+    <div class="topbar-right">
+      <span class="topbar-date" id="topbarDate"></span>
+      <button class="btn-accent" onclick="location.href='pos.html'">➕ New Sale</button>
+    </div>
+  </header>
+
+  <div class="content">
+    <!-- Summary -->
+    <div class="summary-strip" id="summaryStrip"></div>
+
+    <!-- Filter Bar -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-body" style="padding:14px 20px">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+          <div class="search-wrap" style="flex:1;min-width:200px">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="form-control" id="sSearch" placeholder="Search by customer, invoice, medicine…" oninput="renderTable()"/>
+          </div>
+          <select class="form-control" style="width:130px" id="payFilter" onchange="renderTable()">
+            <option value="">All Methods</option>
+            <option>Cash</option><option>Card</option><option>JazzCash</option>
+          </select>
+          <input type="date" class="form-control" style="width:150px" id="dateFilter" onchange="renderTable()"/>
+          <button class="btn-outline" style="font-size:12px" onclick="document.getElementById('dateFilter').value='';renderTable()">Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card">
+      <div class="card-body" style="padding:0">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="padding-left:20px">Invoice #</th>
+                <th>Customer</th>
+                <th>Items</th>
+                <th>Discount</th>
+                <th>Total</th>
+                <th>Payment</th>
+                <th>Date & Time</th>
+                <th style="padding-right:20px">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="salesTableBody"></tbody>
+          </table>
+        </div>
+        <div id="noResults" style="display:none;text-align:center;padding:40px;color:var(--text-muted)">No sales records found</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Invoice View Modal -->
+<div class="modal-overlay" id="viewModal">
+  <div class="modal" style="width:420px">
+    <div class="modal-header">
+      <div class="modal-title">Invoice Details</div>
+      <button class="modal-close" onclick="closeModal('viewModal')">×</button>
+    </div>
+    <div class="modal-body invoice-modal-content" id="viewInvoiceContent"></div>
+    <div class="modal-footer">
+      <button class="btn-outline" onclick="printViewInvoice()">🖨 Print</button>
+      <button class="btn-accent" onclick="closeModal('viewModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  renderSummary();
+  renderTable();
+});
+
+function renderSummary() {
+  const sales = DB.get('sales') || [];
+  const total = sales.reduce((s, x) => s + x.total, 0);
+  const cash = sales.filter(s => s.payMethod === 'Cash').length;
+  const card = sales.filter(s => s.payMethod !== 'Cash').length;
+  document.getElementById('summaryStrip').innerHTML = `
+    <div class="sum-card"><span class="sum-icon">🧾</span><div><div class="sum-val">${sales.length}</div><div class="sum-label">Total Transactions</div></div></div>
+    <div class="sum-card"><span class="sum-icon">💰</span><div><div class="sum-val">${formatCurrency(total)}</div><div class="sum-label">Total Revenue</div></div></div>
+    <div class="sum-card"><span class="sum-icon">💳</span><div><div class="sum-val">${card} / ${cash}</div><div class="sum-label">Card / Cash Sales</div></div></div>
+  `;
+}
+
+function renderTable() {
+  const q = document.getElementById('sSearch').value.toLowerCase();
+  const pay = document.getElementById('payFilter').value;
+  const date = document.getElementById('dateFilter').value;
+  let sales = DB.get('sales') || [];
+
+  sales = sales.filter(s => {
+    const matchQ = !q || s.customer.toLowerCase().includes(q) || s.invoiceNo.toLowerCase().includes(q) || s.items.some(i => i.name.toLowerCase().includes(q));
+    const matchPay = !pay || s.payMethod === pay;
+    const matchDate = !date || s.date === date;
+    return matchQ && matchPay && matchDate;
+  });
+
+  const tbody = document.getElementById('salesTableBody');
+  const noRes = document.getElementById('noResults');
+  if (sales.length === 0) { tbody.innerHTML = ''; noRes.style.display = 'block'; return; }
+  noRes.style.display = 'none';
+
+  // Show newest first
+  const sorted = [...sales].reverse();
+
+  tbody.innerHTML = sorted.map(s => `
+    <tr>
+      <td style="padding-left:20px">
+        <strong style="font-family:'Syne',sans-serif">${s.invoiceNo}</strong>
+      </td>
+      <td>
+        <div style="font-weight:500">${s.customer}</div>
+      </td>
+      <td>
+        <div style="font-size:13px;font-weight:500">${s.items.length} item${s.items.length !== 1 ? 's' : ''}</div>
+        <div class="inv-detail">${s.items.map(i => `${i.name} ×${i.qty}`).join(', ')}</div>
+      </td>
+      <td>${s.discount > 0 ? `<span style="color:var(--accent-danger)">- Rs. ${s.discount}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+      <td><strong style="font-family:'Syne',sans-serif;color:var(--accent)">${formatCurrency(s.total)}</strong></td>
+      <td>
+        <span class="badge ${s.payMethod === 'Card' ? 'badge-info' : s.payMethod === 'JazzCash' ? 'badge-warn' : 'badge-success'}">${s.payMethod}</span>
+      </td>
+      <td>
+        <div style="font-size:13px">${formatDate(s.date)}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${s.time}</div>
+      </td>
+      <td style="padding-right:20px">
+        <button class="view-inv-btn" onclick="viewInvoice('${s.id}')">🧾 View</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function viewInvoice(id) {
+  const sales = DB.get('sales') || [];
+  const sale = sales.find(s => s.id === id);
+  if (!sale) return;
+  document.getElementById('viewInvoiceContent').innerHTML = `
+    <div style="text-align:center;margin-bottom:16px">
+      <div style="font-size:28px">💊</div>
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800">PharmaPos</div>
+      <div style="font-size:11px;color:var(--text-muted)">Pharmacy Management System</div>
+    </div>
+    <div style="background:var(--content-bg);border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:var(--text-secondary)">Invoice #</span><strong>${sale.invoiceNo}</strong></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:var(--text-secondary)">Customer</span><span>${sale.customer}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:var(--text-secondary)">Date</span><span>${formatDate(sale.date)} at ${sale.time}</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--text-secondary)">Payment</span><span class="badge ${sale.payMethod==='Card'?'badge-info':'badge-success'}">${sale.payMethod}</span></div>
+    </div>
+    <table style="width:100%;font-size:12px;border-collapse:collapse;margin-bottom:12px">
+      <thead><tr style="background:var(--content-bg)"><th style="padding:8px;text-align:left">Item</th><th style="padding:8px;text-align:center">Qty</th><th style="padding:8px;text-align:right">Rate</th><th style="padding:8px;text-align:right">Amount</th></tr></thead>
+      <tbody>
+        ${sale.items.map(i => `<tr style="border-top:1px solid var(--border)"><td style="padding:8px">${i.name}</td><td style="padding:8px;text-align:center">${i.qty}</td><td style="padding:8px;text-align:right">Rs.${i.price}</td><td style="padding:8px;text-align:right">Rs.${(i.qty*i.price).toLocaleString()}</td></tr>`).join('')}
+      </tbody>
+    </table>
+    <div style="border-top:1px solid var(--border);padding-top:10px;font-size:13px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:var(--text-secondary)">Subtotal</span><span>Rs.${(sale.total + sale.discount).toLocaleString()}</span></div>
+      ${sale.discount > 0 ? `<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:var(--text-secondary)">Discount</span><span style="color:var(--accent-danger)">- Rs.${sale.discount}</span></div>` : ''}
+      <div style="display:flex;justify-content:space-between;font-family:'Syne',sans-serif;font-size:16px;font-weight:800;margin-top:4px"><span>TOTAL</span><span style="color:var(--accent)">${formatCurrency(sale.total)}</span></div>
+    </div>
+  `;
+  openModal('viewModal');
+}
+
+function printViewInvoice() {
+  const content = document.getElementById('viewInvoiceContent').innerHTML;
+  const w = window.open('', '', 'width=420,height=600');
+  w.document.write(`<html><head><title>Invoice</title><style>body{font-family:sans-serif;padding:20px;font-size:13px}table{width:100%;border-collapse:collapse}th,td{padding:8px;text-align:left}th:last-child,td:last-child{text-align:right}</style></head><body>${content}</body></html>`);
+  w.document.close(); w.print();
+}
+</script>
+</body>
+</html>

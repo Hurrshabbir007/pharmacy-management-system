@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>POS / Billing — PharmaPos</title>
+  <link rel="stylesheet" href="shared.css"/>
+  <style>
+    .pos-layout {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 20px;
+      height: calc(100vh - 64px - 56px);
+    }
+    /* Left: Medicine Search */
+    .pos-left { display: flex; flex-direction: column; gap: 16px; overflow: hidden; }
+    .med-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      overflow-y: auto;
+      padding-bottom: 8px;
+    }
+    .med-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      cursor: pointer;
+      transition: all 0.15s;
+      position: relative;
+      overflow: hidden;
+    }
+    .med-card:hover { border-color: var(--accent); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+    .med-card.out-of-stock { opacity: 0.5; pointer-events: none; }
+    .med-cat-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      display: inline-block; margin-right: 6px;
+    }
+    .med-name { font-size: 13px; font-weight: 600; margin: 8px 0 4px; line-height: 1.3; }
+    .med-price { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; color: var(--accent); }
+    .med-stock-tag {
+      position: absolute; top: 8px; right: 8px;
+      font-size: 10px; font-weight: 600;
+      padding: 2px 6px; border-radius: 4px;
+    }
+    .add-pulse { animation: pulse 0.3s ease; }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(0.96); }
+      100% { transform: scale(1); }
+    }
+
+    /* Right: Cart */
+    .pos-right {
+      display: flex; flex-direction: column;
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .cart-header {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .cart-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 15px; }
+    .cart-items { flex: 1; overflow-y: auto; padding: 12px 16px; }
+    .cart-empty {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; color: var(--text-muted); font-size: 13px; gap: 8px;
+    }
+    .cart-empty .empty-icon { font-size: 36px; }
+    .cart-item {
+      display: flex; gap: 10px; align-items: flex-start;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+    .cart-item:last-child { border-bottom: none; }
+    .cart-item-info { flex: 1; }
+    .cart-item-name { font-size: 13px; font-weight: 500; line-height: 1.3; }
+    .cart-item-price { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .qty-controls { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .qty-btn {
+      width: 24px; height: 24px; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--content-bg);
+      cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;
+      font-weight: 700; transition: all 0.12s; color: var(--text-primary);
+    }
+    .qty-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .qty-val { font-size: 14px; font-weight: 600; min-width: 20px; text-align: center; }
+    .item-total { font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 700; color: var(--text-primary); white-space: nowrap; }
+    .remove-btn {
+      background: none; border: none; cursor: pointer; color: var(--text-muted);
+      font-size: 16px; padding: 0; line-height: 1; transition: color 0.12s;
+    }
+    .remove-btn:hover { color: var(--accent-danger); }
+
+    /* Cart Footer */
+    .cart-footer { border-top: 1px solid var(--border); padding: 16px 20px; }
+    .cart-summary-row {
+      display: flex; justify-content: space-between;
+      font-size: 13px; margin-bottom: 8px;
+    }
+    .cart-summary-row.total {
+      font-family: 'Syne', sans-serif;
+      font-size: 17px; font-weight: 800;
+      color: var(--text-primary);
+      border-top: 1px solid var(--border);
+      padding-top: 10px; margin-top: 4px;
+    }
+    .cart-summary-label { color: var(--text-secondary); }
+    .cart-summary-val { font-weight: 600; }
+    .discount-input {
+      width: 80px; padding: 4px 8px;
+      border: 1px solid var(--border); border-radius: 6px;
+      font-size: 13px; text-align: right;
+      font-family: 'DM Sans', sans-serif;
+    }
+    .discount-input:focus { outline: none; border-color: var(--accent); }
+    .pay-btn {
+      width: 100%; padding: 13px;
+      background: linear-gradient(135deg, var(--accent), #00b894);
+      color: #fff; border: none; border-radius: var(--radius-sm);
+      font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700;
+      cursor: pointer; transition: all 0.15s; margin-top: 12px;
+    }
+    .pay-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,212,170,0.35); }
+    .pay-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+    .pay-method-row {
+      display: flex; gap: 8px; margin-bottom: 12px;
+    }
+    .pay-method-btn {
+      flex: 1; padding: 8px; border-radius: var(--radius-sm);
+      border: 1.5px solid var(--border); background: transparent;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      transition: all 0.12s; color: var(--text-secondary);
+      font-family: 'DM Sans', sans-serif;
+    }
+    .pay-method-btn.selected {
+      border-color: var(--accent); color: var(--accent);
+      background: rgba(0,212,170,0.08);
+    }
+    .customer-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .customer-row input { flex: 1; }
+
+    /* Invoice Modal */
+    .invoice-box {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 20px;
+      font-size: 13px;
+    }
+    .invoice-header { text-align: center; margin-bottom: 16px; }
+    .invoice-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 800; }
+    .invoice-sub { font-size: 11px; color: var(--text-muted); }
+    .invoice-divider { border: none; border-top: 1px dashed var(--border); margin: 12px 0; }
+    .invoice-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+    .invoice-total-row { display: flex; justify-content: space-between; font-weight: 700; font-size: 15px; font-family: 'Syne', sans-serif; }
+    .inv-table { width: 100%; font-size: 12px; margin: 8px 0; }
+    .inv-table th { text-align: left; color: var(--text-muted); font-weight: 600; padding: 4px 0; }
+    .inv-table td { padding: 4px 0; }
+    .inv-table td:last-child { text-align: right; }
+    .inv-table th:last-child { text-align: right; }
+  </style>
+</head>
+<body>
+<script src="shared.js"></script>
+<script src="sidebar.js"></script>
+<script>document.addEventListener('DOMContentLoaded', renderSidebar);</script>
+
+<div class="main">
+  <header class="topbar">
+    <div class="topbar-title">POS / Billing</div>
+    <div class="topbar-right">
+      <span class="topbar-date" id="topbarDate"></span>
+      <button class="btn-outline" style="font-size:12px" onclick="clearCart()">🗑 Clear Cart</button>
+    </div>
+  </header>
+
+  <div class="content" style="padding-bottom:0;height:calc(100vh - 64px)">
+    <div class="pos-layout">
+      <!-- Left Panel -->
+      <div class="pos-left">
+        <!-- Search & Filter -->
+        <div style="display:flex;gap:12px;align-items:center">
+          <div class="search-wrap" style="flex:1">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="form-control" id="medSearch" placeholder="Search medicine by name or category…" oninput="filterMeds()"/>
+          </div>
+          <select class="form-control" style="width:160px" id="catFilter" onchange="filterMeds()">
+            <option value="">All Categories</option>
+          </select>
+        </div>
+        <!-- Medicine Grid -->
+        <div class="med-grid" id="medGrid"></div>
+      </div>
+
+      <!-- Right Panel: Cart -->
+      <div class="pos-right">
+        <div class="cart-header">
+          <div class="cart-title">🛒 Cart</div>
+          <span class="badge badge-info" id="cartCount">0 items</span>
+        </div>
+        <div class="cart-items" id="cartItems">
+          <div class="cart-empty"><div class="empty-icon">🛒</div><span>Cart is empty</span><span style="font-size:11px">Click a medicine to add</span></div>
+        </div>
+        <div class="cart-footer">
+          <div class="customer-row">
+            <input type="text" class="form-control" id="customerName" placeholder="👤 Customer name (optional)" style="font-size:13px"/>
+          </div>
+          <div class="cart-summary-row">
+            <span class="cart-summary-label">Subtotal</span>
+            <span class="cart-summary-val" id="subtotal">Rs. 0</span>
+          </div>
+          <div class="cart-summary-row" style="align-items:center">
+            <span class="cart-summary-label">Discount (Rs.)</span>
+            <input type="number" class="discount-input" id="discountInput" value="0" min="0" oninput="updateTotals()"/>
+          </div>
+          <div class="cart-summary-row total">
+            <span>Total</span>
+            <span id="totalAmount">Rs. 0</span>
+          </div>
+          <div class="pay-method-row">
+            <button class="pay-method-btn selected" onclick="selectPayMethod(this,'Cash')">💵 Cash</button>
+            <button class="pay-method-btn" onclick="selectPayMethod(this,'Card')">💳 Card</button>
+            <button class="pay-method-btn" onclick="selectPayMethod(this,'JazzCash')">📱 JazzCash</button>
+          </div>
+          <button class="pay-btn" id="checkoutBtn" onclick="checkout()" disabled>💳 Process Payment</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Invoice Modal -->
+<div class="modal-overlay" id="invoiceModal">
+  <div class="modal" style="width:420px">
+    <div class="modal-header">
+      <div class="modal-title">Invoice Generated ✓</div>
+      <button class="modal-close" onclick="closeModal('invoiceModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="invoice-box" id="invoiceContent"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-outline" onclick="printInvoice()">🖨 Print</button>
+      <button class="btn-accent" onclick="closeModal('invoiceModal');clearCart()">✓ Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+let cart = [];
+let payMethod = 'Cash';
+
+const catColors = {
+  'Analgesic':'#00d4aa','Antibiotic':'#6c63ff','Antacid':'#ff4d6d',
+  'Antidiabetic':'#ffbe0b','Statin':'#3b82f6','NSAID':'#f59e0b',
+  'Antihistamine':'#10b981','Cough & Cold':'#8b5cf6','Supplement':'#ec4899',
+  'Bronchodilator':'#06b6d4'
+};
+
+function getCatColor(cat) { return catColors[cat] || '#9ca3af'; }
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadMeds();
+});
+
+function loadMeds() {
+  const meds = DB.get('medicines') || [];
+  const cats = [...new Set(meds.map(m => m.category))];
+  const sel = document.getElementById('catFilter');
+  cats.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o); });
+  renderMedGrid(meds);
+}
+
+function filterMeds() {
+  const q = document.getElementById('medSearch').value.toLowerCase();
+  const cat = document.getElementById('catFilter').value;
+  const meds = DB.get('medicines') || [];
+  const filtered = meds.filter(m =>
+    (m.name.toLowerCase().includes(q) || m.category.toLowerCase().includes(q)) &&
+    (!cat || m.category === cat)
+  );
+  renderMedGrid(filtered);
+}
+
+function renderMedGrid(meds) {
+  const grid = document.getElementById('medGrid');
+  grid.innerHTML = meds.map(m => `
+    <div class="med-card ${m.stock === 0 ? 'out-of-stock' : ''}" onclick="addToCart('${m.id}')" id="mc${m.id}">
+      <div style="font-size:11px;color:${getCatColor(m.category)}">
+        <span class="med-cat-dot" style="background:${getCatColor(m.category)}"></span>${m.category}
+      </div>
+      <div class="med-name">${m.name}</div>
+      <div class="med-price">Rs. ${m.price}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">per ${m.unit}</div>
+      <div class="med-stock-tag ${m.stock <= m.minStock ? 'badge-warn' : 'badge-success'}" style="background:${m.stock <= m.minStock ? 'rgba(255,190,11,0.15)' : 'rgba(0,212,170,0.12)'}; color:${m.stock <= m.minStock ? '#d4930a' : '#00a884'}">
+        ${m.stock} left
+      </div>
+    </div>
+  `).join('');
+}
+
+function addToCart(id) {
+  const meds = DB.get('medicines') || [];
+  const med = meds.find(m => m.id === id);
+  if (!med || med.stock === 0) return;
+  const existing = cart.find(c => c.id === id);
+  if (existing) {
+    if (existing.qty >= med.stock) { showToast('Not enough stock!', 'warn'); return; }
+    existing.qty++;
+  } else {
+    cart.push({ id: med.id, name: med.name, price: med.price, qty: 1, unit: med.unit, maxStock: med.stock });
+  }
+  const card = document.getElementById('mc' + id);
+  if (card) { card.classList.add('add-pulse'); setTimeout(() => card.classList.remove('add-pulse'), 300); }
+  renderCart();
+  showToast(`${med.name} added`, 'success');
+}
+
+function removeFromCart(id) {
+  cart = cart.filter(c => c.id !== id);
+  renderCart();
+}
+
+function updateQty(id, delta) {
+  const item = cart.find(c => c.id === id);
+  if (!item) return;
+  item.qty = Math.max(1, Math.min(item.qty + delta, item.maxStock));
+  renderCart();
+}
+
+function renderCart() {
+  const container = document.getElementById('cartItems');
+  document.getElementById('cartCount').textContent = cart.length + ' item' + (cart.length !== 1 ? 's' : '');
+  if (cart.length === 0) {
+    container.innerHTML = '<div class="cart-empty"><div class="empty-icon">🛒</div><span>Cart is empty</span><span style="font-size:11px">Click a medicine to add</span></div>';
+    document.getElementById('checkoutBtn').disabled = true;
+    updateTotals();
+    return;
+  }
+  container.innerHTML = cart.map(item => `
+    <div class="cart-item">
+      <div class="cart-item-info">
+        <div class="cart-item-name">${item.name}</div>
+        <div class="cart-item-price">Rs. ${item.price} × ${item.qty} ${item.unit}</div>
+        <div class="qty-controls">
+          <button class="qty-btn" onclick="updateQty('${item.id}',-1)">−</button>
+          <span class="qty-val">${item.qty}</span>
+          <button class="qty-btn" onclick="updateQty('${item.id}',1)">+</button>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+        <button class="remove-btn" onclick="removeFromCart('${item.id}')">✕</button>
+        <span class="item-total">Rs. ${(item.price * item.qty).toLocaleString()}</span>
+      </div>
+    </div>
+  `).join('');
+  document.getElementById('checkoutBtn').disabled = false;
+  updateTotals();
+}
+
+function updateTotals() {
+  const sub = cart.reduce((s, i) => s + i.price * i.qty, 0);
+  const disc = parseInt(document.getElementById('discountInput').value) || 0;
+  const total = Math.max(0, sub - disc);
+  document.getElementById('subtotal').textContent = formatCurrency(sub);
+  document.getElementById('totalAmount').textContent = formatCurrency(total);
+}
+
+function selectPayMethod(btn, method) {
+  payMethod = method;
+  document.querySelectorAll('.pay-method-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+}
+
+function checkout() {
+  if (cart.length === 0) return;
+  const sub = cart.reduce((s, i) => s + i.price * i.qty, 0);
+  const disc = parseInt(document.getElementById('discountInput').value) || 0;
+  const total = Math.max(0, sub - disc);
+  const customer = document.getElementById('customerName').value.trim() || 'Walk-in';
+  const sales = DB.get('sales') || [];
+  const meds = DB.get('medicines') || [];
+  const newInvoiceNo = 'INV-' + (1000 + sales.length + 1);
+  const now = new Date();
+  const sale = {
+    id: genId('s'),
+    invoiceNo: newInvoiceNo,
+    customer,
+    items: cart.map(c => ({ name: c.name, qty: c.qty, price: c.price })),
+    total, discount: disc,
+    date: now.toISOString().split('T')[0],
+    time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+    payMethod
+  };
+  // Deduct stock
+  cart.forEach(ci => {
+    const med = meds.find(m => m.id === ci.id);
+    if (med) med.stock -= ci.qty;
+  });
+  DB.set('medicines', meds);
+  sales.push(sale);
+  DB.set('sales', sales);
+  // Show invoice
+  renderInvoice(sale);
+  openModal('invoiceModal');
+}
+
+function renderInvoice(sale) {
+  const html = `
+    <div class="invoice-header">
+      <div style="font-size:24px">💊</div>
+      <div class="invoice-title">PharmaPos</div>
+      <div class="invoice-sub">Pharmacy Management System</div>
+      <div class="invoice-sub">📍 Main Branch, Rawalpindi</div>
+    </div>
+    <hr class="invoice-divider"/>
+    <div class="invoice-row"><span>Invoice #</span><strong>${sale.invoiceNo}</strong></div>
+    <div class="invoice-row"><span>Customer</span><span>${sale.customer}</span></div>
+    <div class="invoice-row"><span>Date</span><span>${formatDate(sale.date)} ${sale.time}</span></div>
+    <div class="invoice-row"><span>Payment</span><span>${sale.payMethod}</span></div>
+    <hr class="invoice-divider"/>
+    <table class="inv-table">
+      <thead><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Total</th></tr></thead>
+      <tbody>
+        ${sale.items.map(i => `<tr><td>${i.name}</td><td>${i.qty}</td><td>Rs.${i.price}</td><td>Rs.${(i.qty*i.price).toLocaleString()}</td></tr>`).join('')}
+      </tbody>
+    </table>
+    <hr class="invoice-divider"/>
+    <div class="invoice-row"><span>Subtotal</span><span>Rs.${(sale.total + sale.discount).toLocaleString()}</span></div>
+    ${sale.discount > 0 ? `<div class="invoice-row"><span>Discount</span><span style="color:var(--accent-danger)">- Rs.${sale.discount}</span></div>` : ''}
+    <div class="invoice-total-row"><span>TOTAL</span><span>${formatCurrency(sale.total)}</span></div>
+    <hr class="invoice-divider"/>
+    <div style="text-align:center;font-size:11px;color:var(--text-muted)">Thank you for your purchase! 🙏<br/>Get well soon.</div>
+  `;
+  document.getElementById('invoiceContent').innerHTML = html;
+}
+
+function printInvoice() {
+  const content = document.getElementById('invoiceContent').innerHTML;
+  const w = window.open('', '', 'width=400,height=600');
+  w.document.write(`<html><head><title>Invoice</title><style>body{font-family:sans-serif;padding:20px;font-size:13px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:4px 0}th:last-child,td:last-child{text-align:right}.invoice-row{display:flex;justify-content:space-between;margin-bottom:5px}.invoice-total-row{display:flex;justify-content:space-between;font-weight:700;font-size:15px;border-top:1px dashed #ccc;padding-top:8px;margin-top:4px}hr{border:none;border-top:1px dashed #ccc;margin:10px 0}</style></head><body>${content}</body></html>`);
+  w.document.close();
+  w.print();
+}
+
+function clearCart() {
+  cart = [];
+  document.getElementById('discountInput').value = 0;
+  document.getElementById('customerName').value = '';
+  renderCart();
+}
+</script>
+</body>
+</html>

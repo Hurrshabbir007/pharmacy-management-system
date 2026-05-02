@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard — PharmaPos</title>
+  <link rel="stylesheet" href="shared.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .chart-card { padding: 24px; }
+    .chart-container { position: relative; height: 220px; }
+    .low-stock-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .low-stock-item:last-child { border-bottom: none; }
+    .low-stock-name { font-size: 13.5px; font-weight: 500; }
+    .low-stock-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .recent-sale {
+      display: flex; align-items: center; gap: 14px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .recent-sale:last-child { border-bottom: none; }
+    .sale-avatar {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent2), #a78bfa);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 12px; font-weight: 700; flex-shrink: 0;
+    }
+    .sale-info { flex: 1; }
+    .sale-name { font-size: 13.5px; font-weight: 500; }
+    .sale-time { font-size: 12px; color: var(--text-muted); }
+    .sale-amount { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px; color: var(--accent); }
+    .quick-action {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 8px; padding: 18px 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      cursor: pointer; transition: all 0.15s;
+      text-decoration: none; color: var(--text-primary);
+    }
+    .quick-action:hover { border-color: var(--accent); background: rgba(0,212,170,0.04); transform: translateY(-2px); }
+    .qa-icon { font-size: 24px; }
+    .qa-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-align: center; }
+  </style>
+</head>
+<body>
+<script src="shared.js"></script>
+<script src="sidebar.js"></script>
+<script>document.addEventListener('DOMContentLoaded', renderSidebar);</script>
+
+<div class="main">
+  <header class="topbar">
+    <div class="topbar-title">Dashboard</div>
+    <div class="topbar-right">
+      <span class="topbar-date" id="topbarDate"></span>
+      <button class="topbar-btn" onclick="location.reload()" title="Refresh">🔄</button>
+      <button class="topbar-btn" style="position:relative" onclick="location.href='approvals.html'">
+        🔔<span class="notif-dot" id="notifDot" style="display:none"></span>
+      </button>
+    </div>
+  </header>
+
+  <div class="content">
+    <!-- Stats Row -->
+    <div class="grid-4" id="statsGrid" style="margin-bottom:24px"></div>
+
+    <!-- Charts Row -->
+    <div class="grid-2" style="margin-bottom:24px">
+      <div class="card chart-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="card-title">Sales This Week</div>
+          <span class="badge badge-success">↑ 12%</span>
+        </div>
+        <div class="chart-container">
+          <canvas id="salesChart"></canvas>
+        </div>
+      </div>
+      <div class="card chart-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="card-title">Medicine Categories</div>
+          <span class="badge badge-info">Stock</span>
+        </div>
+        <div class="chart-container">
+          <canvas id="catChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Row -->
+    <div class="grid-3" style="margin-bottom:24px">
+      <!-- Recent Sales -->
+      <div class="card" style="grid-column:span 2">
+        <div class="card-header">
+          <div class="card-title">Recent Transactions</div>
+          <a href="sales.html" class="btn-outline" style="font-size:12px;padding:6px 12px">View All</a>
+        </div>
+        <div class="card-body" id="recentSalesList"></div>
+      </div>
+
+      <!-- Low Stock -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">⚠️ Low Stock Alert</div>
+        </div>
+        <div class="card-body" id="lowStockList"></div>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card" style="margin-bottom:0">
+      <div class="card-header" style="margin-bottom:16px">
+        <div class="card-title">Quick Actions</div>
+      </div>
+      <div class="card-body" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding-top:0">
+        <a href="pos.html" class="quick-action"><div class="qa-icon">🛒</div><div class="qa-label">New Sale</div></a>
+        <a href="inventory.html" class="quick-action" id="qaAddMed"><div class="qa-icon">➕</div><div class="qa-label">Add Medicine</div></a>
+        <a href="approvals.html" class="quick-action"><div class="qa-icon">📋</div><div class="qa-label">Approvals</div></a>
+        <a href="sales.html" class="quick-action"><div class="qa-icon">🧾</div><div class="qa-label">Sales Report</div></a>
+        <a href="inventory.html" class="quick-action"><div class="qa-icon">📦</div><div class="qa-label">Inventory</div></a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const medicines = DB.get('medicines') || [];
+  const sales = DB.get('sales') || [];
+  const approvals = DB.get('approvals') || [];
+  const pending = approvals.filter(a => a.status === 'Pending').length;
+
+  if (pending > 0) document.getElementById('notifDot').style.display = 'block';
+
+  // Stats
+  const totalRevenue = sales.reduce((s, x) => s + x.total, 0);
+  const todaySales = sales.filter(s => s.date === new Date().toISOString().split('T')[0]);
+  const lowStock = medicines.filter(m => m.stock <= m.minStock);
+  const expiryAlert = medicines.filter(m => new Date(m.expiry) <= new Date(Date.now() + 60*24*3600*1000));
+
+  const statsData = [
+    { label: 'Total Revenue', value: formatCurrency(totalRevenue), icon: '💰', color: 'green', change: '↑ 8% this month', dir: 'up' },
+    { label: 'Total Medicines', value: medicines.length, icon: '💊', color: 'purple', change: `${lowStock.length} low stock`, dir: lowStock.length > 0 ? 'down' : 'up' },
+    { label: "Today's Sales", value: todaySales.length || sales.length, icon: '🛒', color: 'yellow', change: '↑ 3 from yesterday', dir: 'up' },
+    { label: 'Pending Approvals', value: pending, icon: '📋', color: 'red', change: `${expiryAlert.length} expiry alerts`, dir: pending > 0 ? 'down' : 'up' },
+  ];
+
+  document.getElementById('statsGrid').innerHTML = statsData.map(s => `
+    <div class="stat-card ${s.color}">
+      <div class="stat-icon ${s.color}">${s.icon}</div>
+      <div class="stat-value">${s.value}</div>
+      <div class="stat-label">${s.label}</div>
+      <div class="stat-change ${s.dir}">${s.change}</div>
+    </div>
+  `).join('');
+
+  // Sales Chart
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const salesData = [1240, 1890, 760, 2100, 1560, 3200, 2750];
+  new Chart(document.getElementById('salesChart'), {
+    type: 'bar',
+    data: {
+      labels: days,
+      datasets: [{
+        label: 'Sales (Rs.)',
+        data: salesData,
+        backgroundColor: 'rgba(0,212,170,0.2)',
+        borderColor: '#00d4aa',
+        borderWidth: 2,
+        borderRadius: 6,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 }, callback: v => 'Rs.' + v } },
+        x: { grid: { display: false }, ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+
+  // Category Chart
+  const cats = {};
+  medicines.forEach(m => { cats[m.category] = (cats[m.category] || 0) + m.stock; });
+  const catColors = ['#00d4aa','#6c63ff','#ff4d6d','#ffbe0b','#3b82f6','#f59e0b','#10b981','#8b5cf6'];
+  new Chart(document.getElementById('catChart'), {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(cats),
+      datasets: [{
+        data: Object.values(cats),
+        backgroundColor: catColors,
+        borderWidth: 0,
+        hoverOffset: 6,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 10, padding: 12 } }
+      },
+      cutout: '65%'
+    }
+  });
+
+  // Recent Sales
+  const recent = [...sales].reverse().slice(0, 5);
+  document.getElementById('recentSalesList').innerHTML = recent.map(s => {
+    const initials = s.customer.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+    return `
+    <div class="recent-sale">
+      <div class="sale-avatar">${initials}</div>
+      <div class="sale-info">
+        <div class="sale-name">${s.customer}</div>
+        <div class="sale-time">${s.invoiceNo} · ${s.time} · ${formatDate(s.date)}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="sale-amount">${formatCurrency(s.total)}</div>
+        <span class="badge ${s.payMethod === 'Card' ? 'badge-info' : 'badge-success'}" style="font-size:10px">${s.payMethod}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Low Stock
+  const lowMeds = medicines.filter(m => m.stock <= m.minStock).slice(0, 5);
+  document.getElementById('lowStockList').innerHTML = lowMeds.length === 0
+    ? '<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px 0">All medicines well stocked ✓</p>'
+    : lowMeds.map(m => {
+        const pct = Math.round((m.stock / m.minStock) * 100);
+        const color = m.stock === 0 ? '#ff4d6d' : m.stock < m.minStock / 2 ? '#ffbe0b' : '#f59e0b';
+        return `
+        <div class="low-stock-item">
+          <div>
+            <div class="low-stock-name">${m.name}</div>
+            <div class="low-stock-meta">${m.stock} left · Min: ${m.minStock}</div>
+            <div class="stock-bar"><div class="stock-bar-fill" style="width:${Math.min(pct,100)}%;background:${color}"></div></div>
+          </div>
+          <span class="badge badge-danger">Low</span>
+        </div>`;
+      }).join('');
+});
+</script>
+</body>
+</html>
